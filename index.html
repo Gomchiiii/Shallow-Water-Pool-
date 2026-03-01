@@ -13,28 +13,56 @@
     font-family: 'Georgia', serif;
     width: 100vw; height: 100vh;
   }
-  #ui-top {
+
+  /* ── 우하단 패널 ── */
+  #ui-bottom-right {
     position: fixed;
-    top: 16px; left: 50%;
-    transform: translateX(-50%);
+    bottom: 20px;
+    right: 22px;
     display: flex;
-    align-items: center;
-    gap: 20px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
     z-index: 10;
   }
+
+  #clock {
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 1.55rem;
+    letter-spacing: 3px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-shadow: 0 0 18px rgba(100, 200, 255, 0.25);
+  }
+
+  #clock-date {
+    color: rgba(255, 255, 255, 0.38);
+    font-size: 0.6rem;
+    letter-spacing: 3px;
+    text-align: right;
+    text-transform: uppercase;
+  }
+
+  #bottom-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
   #title {
-    color: rgba(180,225,255,0.35);
-    font-size: 0.68rem;
+    color: rgba(255,225,255,0.28);
+    font-size: 0.62rem;
     letter-spacing: 5px;
     text-transform: uppercase;
   }
+
   #rain-btn {
     background: none;
-    border: 1px solid rgba(120,190,255,0.3);
+    border: 1px solid rgba(255,255,255,0.3);
     color: rgba(160,215,255,0.55);
-    font-size: 0.63rem;
+    font-size: 0.6rem;
     letter-spacing: 2px;
-    padding: 4px 14px;
+    padding: 4px 13px;
     cursor: pointer;
     border-radius: 20px;
     transition: all 0.25s;
@@ -42,6 +70,7 @@
   }
   #rain-btn:hover { border-color: rgba(120,190,255,0.65); color: rgba(180,230,255,0.9); }
   #rain-btn.on { background: rgba(80,160,255,0.12); border-color: rgba(120,190,255,0.65); color: rgba(200,235,255,0.9); }
+
   #hint {
     position: fixed;
     bottom: 14px; left: 50%;
@@ -67,10 +96,16 @@
 </head>
 <body>
 
-<div id="ui-top">
-  <div id="title">shallow water</div>
-  <button id="rain-btn" class="on">🌧 빗방울 ON</button>
+<!-- 우하단 UI 패널 -->
+<div id="ui-bottom-right">
+  <div id="clock">00:00:00</div>
+  <div id="clock-date"></div>
+  <div id="bottom-row">
+    <div id="title">shallow water</div>
+    <button id="rain-btn" class="on">🌧 빗방울 ON</button>
+  </div>
 </div>
+
 <canvas id="c"></canvas>
 <div id="hint">클릭 → 물방울 &nbsp;·&nbsp; 길게 누르고 드래그 → 물 밀기</div>
 <div id="cursor-dot"></div>
@@ -78,8 +113,6 @@
 <script>
 // ================================================================
 //  SHALLOW WATER SIMULATOR  v2
-//  Isometric diagonal view, elliptical ripple rings,
-//  Sandy beach bottom with wind ripples + caustics, rain toggle
 // ================================================================
 
 const CW = window.innerWidth, CH = window.innerHeight;
@@ -87,10 +120,8 @@ const canvas = document.getElementById('c');
 canvas.width = CW; canvas.height = CH;
 const ctx = canvas.getContext('2d');
 
-// Simulation grid — 작게 해서 성능 확보
 const COLS = 70, ROWS = 70;
 
-// Isometric projection params
 const TILE_CX =  CW / (COLS + ROWS) * 1.0;
 const TILE_CY =  TILE_CX * 0.5;
 const TILE_RX = -TILE_CX;
@@ -106,53 +137,34 @@ function proj(c, r, h) {
   };
 }
 
-// Unproject screen → grid (ignoring height)
 function unproj(sx, sy) {
-  // Solve: sx = OX + c*CX + r*RX,  sy = OY + c*CY + r*RY
   const dx = sx - ORIGIN_X, dy = sy - ORIGIN_Y;
-  // Matrix inversion of [[CX,RX],[CY,RY]]
   const det = TILE_CX*TILE_RY - TILE_CY*TILE_RX;
   const c = (dx*TILE_RY - dy*TILE_RX) / det;
   const r = (TILE_CX*dy - TILE_CY*dx) / det;
   return { c: Math.round(c), r: Math.round(r) };
 }
 
-// ================================================================
-//  🎨 COLOR PALETTE  ← 여기서 전체 색 조정
-// ================================================================
 const PALETTE = {
-  // 배경 / 천장
-  ceiling:      [0, 0, 0],  
-
-  // 측벽 (LEFT / RIGHT 대각 벽)
-  wall:         [235, 227, 211],   // 기본 크림 화이트
-  wallCorner:   0.58,              // 모서리 어두운 정도  (0=검정 ~ 1)
-  wallEdge:     0.92,              // 모서리 반대편 밝기  (0 ~ 1)
-  wallGrid:     [80, 75, 65],      // 격자 선 색
-
-  // 수면 그라데이션 (뒤=밝음, 앞=어둠)
-  waterFar:     [130, 220, 210],   // 먼 쪽 밝은 민트
-  waterNear:    [ 28, 135, 150],   // 가까운 쪽 짙은 청록
-  waterDepth:   0.55,              // 물 불투명도
-  specular:     120,               // 반사광 강도
-
-  // 앞벽 (수면 아래 보이는 풀 벽)
-  // waterFar / waterNear 와 동일하게 연동되므로 별도 설정 불필요
-
-  // 모래 바닥
-  sandLight:    [195, 168, 108],   // 밝은 모래 (물결 봉우리)
-  sandDark:     [155, 128,  80],   // 어두운 모래 (물결 골)
-  caustic:      60,                // 코스틱 반사광 강도
+  ceiling:      [0, 0, 0],
+  wall:         [235, 227, 211],
+  wallCorner:   0.58,
+  wallEdge:     0.92,
+  wallGrid:     [80, 75, 65],
+  waterFar:     [130, 220, 210],
+  waterNear:    [ 28, 135, 150],
+  waterDepth:   0.55,
+  specular:     120,
+  sandLight:    [195, 168, 108],
+  sandDark:     [155, 128,  80],
+  caustic:      60,
 };
 
-// ================================================================
-//  Wave height field
-// ================================================================
 let cur = new Float32Array(COLS * ROWS);
 let vel = new Float32Array(COLS * ROWS);
 
 const WAVE_C  = 0.20;
-const DAMPING = 0.972;  // 강하게 감쇠 → 파문 빨리 사라짐
+const DAMPING = 0.972;
 
 function stepWave() {
   const c2 = WAVE_C * WAVE_C;
@@ -165,7 +177,6 @@ function stepWave() {
     }
   }
   for (let i = 0; i < COLS*ROWS; i++) cur[i] += vel[i];
-  // Absorbing edges
   for (let x=0;x<COLS;x++){cur[x]*=0.2;cur[(ROWS-1)*COLS+x]*=0.2;}
   for (let y=0;y<ROWS;y++){cur[y*COLS]*=0.2;cur[y*COLS+COLS-1]*=0.2;}
 }
@@ -182,11 +193,8 @@ function addDrop(gc, gr, strength, radius) {
   }
 }
 
-// ================================================================
-//  Sand texture (static)
-// ================================================================
-const sandH   = new Float32Array(COLS * ROWS); // height variation
-const sandRip = new Float32Array(COLS * ROWS); // ripple pattern
+const sandH   = new Float32Array(COLS * ROWS);
+const sandRip = new Float32Array(COLS * ROWS);
 
 function vnoise(x, y, freq) {
   const xi=Math.floor(x*freq), yi=Math.floor(y*freq);
@@ -203,52 +211,16 @@ for (let r=0;r<ROWS;r++){
   for (let c=0;c<COLS;c++){
     const i=r*COLS+c;
     sandH[i] = vnoise(c,r,0.035)*0.5 + vnoise(c,r,0.09)*0.3 + vnoise(c,r,0.22)*0.15 + vnoise(c,r,0.55)*0.05;
-    // Diagonal wind ripples
     const rph = (c*0.72 + r*0.28)*0.5;
     sandRip[i] = (Math.sin(rph)*0.5+0.5)*0.5 + vnoise(c,r,0.18)*0.5;
   }
 }
 
-// ================================================================
-//  Colour helpers
-// ================================================================
 function lerp(a,b,t){return a+(b-a)*t;}
 
-function getSandColor(i, causticV) {
-  const sh = sandH[i], sr = sandRip[i];
-  const [sLR,sLG,sLB] = PALETTE.sandLight;
-  const [sDR,sDG,sDB] = PALETTE.sandDark;
-  const R = lerp(sLR, sDR, 1-sr) + causticV * PALETTE.caustic / 60 * 60;
-  const G = lerp(sLG, sDG, 1-sr) + causticV * PALETTE.caustic / 60 * 48;
-  const B = lerp(sLB, sDB, 1-sr) + causticV * PALETTE.caustic / 60 * 20;
-  return [Math.min(255,R)|0, Math.min(255,G)|0, Math.min(255,B)|0];
-}
-
-function getWaterColor(sandR, sandG, sandB, wh, spec, rowT) {
-  const [fR,fG,fB] = PALETTE.waterFar;
-  const [nR,nG,nB] = PALETTE.waterNear;
-  const WR = lerp(fR, nR, rowT);
-  const WG = lerp(fG, nG, rowT);
-  const WB = lerp(fB, nB, rowT);
-  const w = Math.min(1, PALETTE.waterDepth + wh*0.25);
-  const specV = spec * PALETTE.specular;
-  return [
-    Math.min(255, lerp(sandR,WR,w) + specV)|0,
-    Math.min(255, lerp(sandG,WG,w) + specV)|0,
-    Math.min(255, lerp(sandB,WB,w) + specV)|0,
-  ];
-}
-
-// ================================================================
-//  Ripple rings (elliptical to match iso perspective)
-// ================================================================
 let rings = [];
 
-// Screen position of grid cell (center)
-function cellScreenPos(gc, gr) {
-  return proj(gc + 0.5, gr + 0.5, 0);
-}
-
+const ISO_RATIO = TILE_CY / TILE_CX;
 const MAX_RINGS = 12;
 
 function addRing(sx, sy, strength) {
@@ -256,24 +228,18 @@ function addRing(sx, sy, strength) {
   rings.push({ x:sx, y:sy, r:2, maxR:40+Math.abs(strength)*10, alpha:0.65, speed:2.2+Math.abs(strength)*0.3 });
 }
 
-const ISO_RATIO = TILE_CY / TILE_CX; // ≈ 0.5 — vertical squeeze for ellipse
-
 function updateRings() {
   ctx.save();
   for (const rg of rings) {
     rg.r   += rg.speed;
-    rg.alpha *= 0.82;  // 더 빠르게 페이드
+    rg.alpha *= 0.82;
     if (rg.alpha < 0.015 || rg.r >= rg.maxR) continue;
-
-    const rx = rg.r;
-    const ry = rg.r * ISO_RATIO;
-
+    const rx = rg.r, ry = rg.r * ISO_RATIO;
     ctx.beginPath();
     ctx.ellipse(rg.x, rg.y, rx, ry, 0, 0, Math.PI*2);
     ctx.strokeStyle = `rgba(210,242,255,${rg.alpha*0.55})`;
     ctx.lineWidth = 1.3;
     ctx.stroke();
-
     if (rg.r > 12) {
       ctx.beginPath();
       ctx.ellipse(rg.x, rg.y, rx*0.56, ry*0.56, 0, 0, Math.PI*2);
@@ -286,12 +252,7 @@ function updateRings() {
   rings = rings.filter(rg => rg.alpha > 0.015 && rg.r < rg.maxR);
 }
 
-// ================================================================
-//  Offscreen wall canvas — 한 번만 굽고 매 프레임 drawImage
-// ================================================================
 const WALL_ROWS = 28;
-const WALL_BASE = [220, 215, 205];
-
 const wallCanvas = document.createElement('canvas');
 wallCanvas.width = CW; wallCanvas.height = CH;
 const wctx = wallCanvas.getContext('2d');
@@ -317,7 +278,6 @@ function bakeWalls() {
     wctx.stroke();
   }
 
-  // LEFT 벽
   for (let row = 0; row < ROWS-1; row++) {
     const wA = proj(0, row,   0);
     const wB2 = proj(0, row+1, 0);
@@ -331,7 +291,6 @@ function bakeWalls() {
     }
   }
 
-  // RIGHT 벽
   for (let col = 0; col < COLS-1; col++) {
     const wA = proj(col,   0, 0);
     const wB2 = proj(col+1, 0, 0);
@@ -344,31 +303,23 @@ function bakeWalls() {
         {x:wB2.x, y:wB2.y-wr*CELL_H},     {x:wA.x,  y:wA.y -wr*CELL_H}, b);
     }
   }
-  // ※ 앞쪽 벽면은 render()에서 매 프레임 수면색으로 동적으로 그림
 }
-bakeWalls(); // 시작 시 한 번만
+bakeWalls();
 
-// 수면 색 LUT — rowT별 미리 계산 (PALETTE 기반)
 const waterLUT = new Array(ROWS);
 for (let r = 0; r < ROWS; r++) {
   const rowT = r / (ROWS-2);
   const [fR,fG,fB] = PALETTE.waterFar;
   const [nR,nG,nB] = PALETTE.waterNear;
-  waterLUT[r] = [
-    lerp(fR, nR, rowT)|0,
-    lerp(fG, nG, rowT)|0,
-    lerp(fB, nB, rowT)|0,
-  ];
+  waterLUT[r] = [lerp(fR,nR,rowT)|0, lerp(fG,nG,rowT)|0, lerp(fB,nB,rowT)|0];
 }
 
 const FRONT_WALL_ROWS = 6;
 const CELL_H_FRONT = TILE_CY * 2.2;
 
 function render() {
-  // 1) 측벽 한 방에 복사 (offscreen bake)
   ctx.drawImage(wallCanvas, 0, 0);
 
-  // 2) 수면 타일 + 앞벽 동적 렌더
   const DEPTH = PALETTE.waterDepth;
   const SPEC  = PALETTE.specular;
   const [sLR,sLG,sLB] = PALETTE.sandLight;
@@ -382,9 +333,8 @@ function render() {
       const h0=cur[i], h1=cur[i+1], h2=cur[i+COLS], h3=cur[i+COLS+1];
       const hAvg = (h0+h1+h2+h3)*0.25;
       const dhdx=h1-h0, dhdr=h2-h0;
-      // spec: 0~1 범위로 클램프
       const spec     = Math.min(1, Math.max(0, -dhdx*0.5-dhdr*0.5));
-      const specT    = Math.pow(spec, 3) * (SPEC / 120); // 0~1
+      const specT    = Math.pow(spec, 3) * (SPEC / 120);
       const causticV = Math.max(0, -(dhdx+dhdr)*4);
 
       const sr = sandRip[i];
@@ -393,7 +343,6 @@ function render() {
       const sB = lerp(sLB,sDB,1-sr) + causticV*CAUS/60*20;
 
       const w = Math.min(1, DEPTH + hAvg*0.25);
-      // 수면색 계산 후 specular는 흰색(255,255,255) 방향으로 lerp
       const baseR = sR*(1-w) + WR*w;
       const baseG = sG*(1-w) + WG*w;
       const baseB = sB*(1-w) + WB*w;
@@ -413,9 +362,7 @@ function render() {
       ctx.fillStyle = `rgb(${fR2},${fG2},${fB2})`;
       ctx.fill();
 
-      // ---- 앞쪽 벽면: 해당 셀의 실제 수면색 그대로 사용 ----
       if (r === ROWS-2) {
-        // LEFT 앞벽: c방향, 코너쪽 살짝 어둡게
         const colMix = lerp(0.75, 1.0, (c+0.5)/(COLS-2));
         const wR2=(fR2*colMix)|0, wG2=(fG2*colMix)|0, wB2=(fB2*colMix)|0;
         for (let fw = 0; fw < FRONT_WALL_ROWS; fw++) {
@@ -432,7 +379,6 @@ function render() {
       }
 
       if (c === COLS-2) {
-        // RIGHT 앞벽: r방향, 코너쪽 살짝 어둡게
         const rowMix = lerp(0.75, 1.0, (r+0.5)/(ROWS-2));
         const wR2=(fR2*rowMix)|0, wG2=(fG2*rowMix)|0, wB2=(fB2*rowMix)|0;
         for (let fw = 0; fw < FRONT_WALL_ROWS; fw++) {
@@ -450,6 +396,32 @@ function render() {
     }
   }
 }
+
+// ================================================================
+//  Clock
+// ================================================================
+const clockEl    = document.getElementById('clock');
+const clockDate  = document.getElementById('clock-date');
+
+const DAYS_KO = ['일','월','화','수','목','금','토'];
+const MONTHS  = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+function updateClock() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  const ss = String(now.getSeconds()).padStart(2,'0');
+  clockEl.textContent = `${hh}:${mm}:${ss}`;
+
+  const day  = DAYS_KO[now.getDay()];
+  const mon  = MONTHS[now.getMonth()];
+  const date = String(now.getDate()).padStart(2,'0');
+  const year = now.getFullYear();
+  clockDate.textContent = `${year} · ${mon} ${date} · ${day}요일`;
+}
+
+updateClock();
+setInterval(updateClock, 1000);
 
 // ================================================================
 //  Interaction
@@ -523,9 +495,6 @@ function ambientRain() {
   }
 }
 
-// ================================================================
-//  Cursor glow
-// ================================================================
 function drawCursorGlow() {
   if (!mousePressed) return;
   const g = ctx.createRadialGradient(mx,my,0,mx,my,26);
@@ -536,9 +505,6 @@ function drawCursorGlow() {
   ctx.beginPath(); ctx.arc(mx,my,26,0,Math.PI*2); ctx.fill();
 }
 
-// ================================================================
-//  MAIN LOOP
-// ================================================================
 function loop() {
   stepWave();
   ambientRain();
